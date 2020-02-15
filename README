@@ -1,0 +1,31 @@
+Platform-specific configuration
+
+  Install prefix: /dev/env/DJDIR
+  Data directory: /dev/env/DJDIR/share/mplayer
+  Config direct.: /dev/env/DJDIR/etc/mplayer
+
+  Byte order: little-endian
+  Optimizing for: Runtime CPU-Detection enabled
+
+  Languages:
+    Messages/GUI: en
+    Manual pages: en  
+
+  Enabled optional drivers:
+    Input: ftp dvdread(external) smb network 
+    Codecs: x264 xvid libavcodec faad2 faac musepack libmpeg2 liba52 mp3lib libtheora speex tremor(internal) 
+    Audio output: allegro mpegpes(file) 
+    Video output: vesa pnm jpeg png mpegpes(file) tga 
+    Audio filters: 
+  Disabled optional drivers:
+    Input: dvdnav vstream pvr radio tv-teletext tv-v4l2 tv-v4l1 tv live555 nemesi cddb cdda libdvdcss(internal) vcd dvb 
+    Codecs: libdv libamr_wb libamr_nb qtx real xanim win32 libdca toolame twolame libmad liblzo gif 
+    Audio output: sun alsa openal jack polyp esd arts oss v4l2 ivtv dxr2 nas sdl 
+    Video output: v4l2 ivtv dxr3 dxr2 sdl gif89a zr zr2 fbdev svga caca aa ggi xmga mga xvidix winvidix cvidix opengl 3dfx dga xvmc xv x11 dfbmga directfb bl md5sum xvr100 tdfx_vid s3fb tdfxfb 
+    Audio filters: ladspa 
+
+
+Operation notes
+
+  * The networking features are supported via Watt-32 (http://www.bgnett.no/~giva/).
+  * Allegro audio output is not enough tested. Reports are welcome.
