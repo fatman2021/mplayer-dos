@@ -1,0 +1,933 @@
+diff -ur -r MPlayer-1.0rc2/configure MPlayer-1.0rc2_djgpp/configure
+--- MPlayer-1.0rc2/configure	2007-10-07 23:49:33.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/configure	2007-10-12 11:06:11.000000000 +0400
+@@ -388,6 +388,7 @@
+ 
+ Audio output:
+   --disable-alsa         disable ALSA audio output [autodetect]
++  --disable-allegro      disable Allegro audio output [autodetect]
+   --disable-ossaudio     disable OSS audio output [autodetect]
+   --disable-arts         disable aRts audio output [autodetect]
+   --disable-esd          disable esd audio output [autodetect]
+@@ -452,6 +453,7 @@
+   --with-extralibdir=DIR      extra linker search paths in DIR (*)
+   --with-xvmclib=NAME         adapter-specific library name (e.g. XvMCNVIDIA)
+ 
++  --with-allegro-config=PATH  path to allegro-config
+   --with-freetype-config=PATH path to freetype-config
+   --with-fribidi-config=PATH  path to fribidi-config
+   --with-glib-config=PATH     path to glib*-config
+@@ -599,6 +601,7 @@
+ _sgiaudio=auto
+ _sunaudio=auto
+ _alsa=auto
++_allegro=auto
+ _fastmemcpy=yes
+ _unrarlib=yes
+ _win32dll=auto
+@@ -728,6 +731,9 @@
+     _xvmclib=`echo $ac_option | cut -d '=' -f 2`
+     ;;
+ 
++  --with-allegro-config=*)
++    _allegroconfig=`echo $ac_option | cut -d '=' -f 2`
++    ;;
+   --with-sdl-config=*)
+     _sdlconfig=`echo $ac_option | cut -d '=' -f 2`
+     ;;
+@@ -967,6 +973,8 @@
+   --disable-sgiaudio)	_sgiaudio=no	;;
+   --enable-alsa)	_alsa=yes	;;
+   --disable-alsa)	_alsa=no	;;
++  --enable-allegro)	_allegro=yes	;;
++  --disable-allegro)	_allegro=no	;;
+   --enable-tv)		_tv=yes		;;
+   --disable-tv)		_tv=no		;;
+   --enable-tv-bsdbt848)	_tv_bsdbt848=yes	;;
+@@ -1224,6 +1232,9 @@
+   MINGW32*)
+     system_name=MINGW32
+     ;;
++  *-DOS|FreeDOS|OpenDOS)
++    system_name=DJGPP
++    ;;
+   *)
+     system_name="$system_name-UNKNOWN"
+     ;;
+@@ -1285,6 +1296,7 @@
+     morphos) system_name=MorphOS ;;
+     amigaos) system_name=AmigaOS ;;
+     mingw32msvc) system_name=MINGW32 ;;
++    msdosdjgpp) system_name=DJGPP ;;
+   esac
+   # We need to convert underscores so that values like k6-2 and pentium-mmx can be passed
+   host_arch=`echo $_target | cut -d '-' -f 1`
+@@ -1516,6 +1528,10 @@
+   _as=`$_cc -print-prog-name=as`
+   test -z "$_as" && _as=as
+ fi
++if test $_cross_compile = yes; then
++  _cc_ranlib=`$_cc -print-prog-name=ranlib`
++  test "$_cc_ranlib" && _ranlib="$_cc_ranlib"
++fi
+ 
+ # XXX: this should be ok..
+ _cpuinfo="echo"
+@@ -2971,7 +2987,11 @@
+ int main (void) { (void) memalign(64, sizeof(char)); return 0; }
+ EOF
+ _memalign=no
+-cc_check && _memalign=yes
++if test "$system_name" = DJGPP ; then 
++ _memalign=no
++else
++  cc_check && _memalign=yes
++fi
+ if test "$_memalign" = yes ; then
+  _def_memalign='#define HAVE_MEMALIGN 1'
+ else
+@@ -3666,7 +3686,7 @@
+ #include <libsmbclient.h>
+ int main(void) { smbc_opendir("smb://"); return 0; }
+ EOF
+-  for _ld_tmp in "-lsmbclient" "-lsmbclient $_ld_dl" "-lsmbclient $_ld_dl -lnsl" "-lsmbclient $_ld_dl -lssl -lnsl" ; do
++  for _ld_tmp in "-lsmbclient" "-lsmbclient -lsocket" "-lsmbclient $_ld_dl" "-lsmbclient $_ld_dl -lnsl" "-lsmbclient $_ld_dl -lssl -lnsl" ; do
+     cc_check $_ld_tmp && _ld_extra="$_ld_extra $_ld_tmp" && \
+       _smbsupport=yes && break
+   done
+@@ -4728,11 +4748,19 @@
+ int main(void) { vbeVersion(); return 0; }
+ EOF
+   _vesa=no
+-  cc_check -lvbe -llrmi && _vesa=yes
++  if test "$system_name" = DJGPP ; then
++    cc_check -lvbe && _vesa=yes
++  else
++    cc_check -lvbe -llrmi && _vesa=yes
++  fi
+ fi
+ if test "$_vesa" = yes ; then
+   _def_vesa='#define HAVE_VESA 1'
+-  _libs_mplayer="$_libs_mplayer -lvbe -llrmi"
++  if test "$system_name" = DJGPP ; then
++    _libs_mplayer="$_libs_mplayer -lvbe"
++  else
++    _libs_mplayer="$_libs_mplayer -lvbe -llrmi"
++  fi
+   _vosrc="$_vosrc vo_vesa.c vesa_lvo.c gtf.c"
+   _vomodules="vesa $_vomodules"
+ else
+@@ -5281,6 +5309,36 @@
+ fi
+ echores "$_alsa"
+ 
++echocheck "Allegro audio"
++if test "$_allegro" = auto ; then
++  cat > $TMPC << EOF
++#include <allegro.h>
++int main(void) { allegro_init(); install_sound(DIGI_AUTODETECT, MIDI_NONE, NULL); return 0; }
++EOF
++  _allegro=no
++  if test -z "$_allegroconfig" ; then
++    cc_check `allegro-config --cflags --libs` && _allegro=yes && _allegroconfig=allegro-config
++    if test "$_allegro" = no ; then
++      cc_check -lalleg && _allegro=yes
++    fi
++  else
++    cc_check `$_allegroconfig --cflags --libs` && _allegro=yes
++  fi
++fi
++if test "$_allegro" = yes ; then
++  _def_allegro='#define HAVE_ALLEGRO 1'
++  _aosrc="$_aosrc ao_allegro.c"
++  _aomodules="allegro $_aomodules"
++  if test -z "$_allegroconfig" ; then
++    _libs_mplayer="$_libs_mplayer -lalleg"
++  else
++    _libs_mplayer="$_libs_mplayer `$_allegroconfig --libs`"
++  fi
++else
++  _def_allegro='#undef HAVE_ALLEGRO'
++  _noaomodules="allegro $_noaomodules"
++fi
++echores "$_allegro"
+ 
+ echocheck "Sun audio"
+ if test "$_sunaudio" = auto ; then
+@@ -8141,6 +8199,7 @@
+ $_def_alsa5
+ $_def_alsa9
+ $_def_alsa1x
++$_def_allegro
+ $_def_arts
+ $_def_esd
+ $_def_esd_latency
+@@ -8233,9 +8292,9 @@
+ #elif defined(HPUX)
+ #define DEFAULT_CDROM_DEVICE    "/dev/cdrom"
+ #define DEFAULT_DVD_DEVICE     "/dev/dvd"
+-#elif defined(WIN32)
+-#define DEFAULT_CDROM_DEVICE    "D:"
+-#define DEFAULT_DVD_DEVICE	"D:"
++#elif defined(WIN32) || defined(__DJGPP__)
++#define DEFAULT_CDROM_DEVICE    "Z:"
++#define DEFAULT_DVD_DEVICE	"Z:"
+ #elif defined(SYS_DARWIN)
+ #define DEFAULT_CDROM_DEVICE    "/dev/disk1"
+ #define DEFAULT_DVD_DEVICE	"/dev/rdiskN"
+diff -ur -r MPlayer-1.0rc2/libao2/audio_out.c MPlayer-1.0rc2_djgpp/libao2/audio_out.c
+--- MPlayer-1.0rc2/libao2/audio_out.c	2007-10-07 23:49:27.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/libao2/audio_out.c	2007-10-12 11:06:11.000000000 +0400
+@@ -44,6 +44,9 @@
+ #ifdef HAVE_ALSA1X
+  extern ao_functions_t audio_out_alsa;
+ #endif
++#ifdef HAVE_ALLEGRO
++extern ao_functions_t audio_out_allegro;
++#endif
+ #ifdef HAVE_NAS
+ extern ao_functions_t audio_out_nas;
+ #endif
+@@ -106,6 +109,9 @@
+         &audio_out_sun,
+ #endif
+ // wrappers:
++#ifdef HAVE_ALLEGRO
++	&audio_out_allegro,
++#endif
+ #ifdef USE_ARTS
+         &audio_out_arts,
+ #endif
+diff -ur -r MPlayer-1.0rc2/libao2/ao_allegro.c MPlayer-1.0rc2_djgpp/libao2/ao_allegro.c
+--- MPlayer-1.0rc2/libao2/ao_allegro.c	1970-01-01 03:00:00.000000000 +0300
++++ MPlayer-1.0rc2_djgpp/libao2/ao_allegro.c	2007-10-12 11:06:11.000000000 +0400
+@@ -0,0 +1,300 @@
++#include "config.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include <allegro.h>
++
++#include "libavutil/common.h"
++#include "mpbswap.h"
++#include "subopt-helper.h"
++#include "libaf/af_format.h"
++#include "audio_out.h"
++#include "audio_out_internal.h"
++#include "mp_msg.h"
++#include "help_mp.h"
++
++
++static ao_info_t info = 
++{
++	"Allegro audio output",
++	"allegro",
++	"Michael Kostylev <mik@niipt.ru>",
++	"experimental version, try `-autosync 30` to prevent a/v sync errors"
++};
++
++LIBAO_EXTERN(allegro)
++
++static AUDIOSTREAM *stream;
++static void *mem_chunk;
++static int bits;
++static unsigned long total_samples;
++static struct timeval play_start;
++
++// to set/get/query special features/parameters
++static int control(int cmd,void *arg)
++{
++	int format, volume;
++	ao_control_vol_t* ao_vol;
++
++	switch(cmd)
++	{
++	case AOCONTROL_QUERY_FORMAT:
++		format = (int)arg;
++		switch(format)
++		{
++			case AF_FORMAT_S8:
++			case AF_FORMAT_U8:
++			case AF_FORMAT_S16_BE:
++	                case AF_FORMAT_U16_BE:
++	                case AF_FORMAT_S16_LE:
++			case AF_FORMAT_U16_LE:
++				return CONTROL_OK;
++			default:
++				return CONTROL_FALSE;
++		}
++	case AOCONTROL_GET_VOLUME:
++		ao_vol = (ao_control_vol_t*)arg;
++		volume = voice_get_volume(stream->voice);
++		ao_vol->left = ao_vol->right = volume / 2.55;
++		return CONTROL_OK;
++	case AOCONTROL_SET_VOLUME:
++		ao_vol = (ao_control_vol_t*)arg;
++		volume = ao_vol->left * 255 / 100;
++		voice_set_volume(stream->voice, volume);
++		return CONTROL_OK;
++	}
++	return CONTROL_UNKNOWN;
++}
++
++// open & setup audio device
++// return: 1=success 0=fail
++static int init(int rate,int channels,int format,int flags)
++{
++	unsigned int outburst = 16384;
++	int volume = 255, voices = 1, card_id = DIGI_AUTODETECT;
++	opt_t subopts[] = {
++	  {"buffer",       OPT_ARG_INT, &outburst, (opt_test_f)int_non_neg},
++	  {"volume",       OPT_ARG_INT, &volume, (opt_test_f)int_non_neg},
++	  {"voices",       OPT_ARG_INT, &voices, (opt_test_f)int_non_neg},
++	  {"card_id",      OPT_ARG_INT, &card_id, NULL},
++	  {NULL}
++	};
++
++	if (subopt_parse(ao_subdevice, subopts) != 0)
++	{
++		mp_msg(MSGT_VO, MSGL_FATAL,
++			"\n-ao allegro command line help:\n"
++			"Example: mplayer -ao allegro:buffer=32768\n"
++			"\nOptions:\n"
++			"  buffer=<4096..65535>\n"
++			"    Buffer size, must be not too small (16384 bytes by default).\n"
++			"  volume=<0..255>\n"
++			"    Initial volume level (255 by default).\n"
++			"  card_id=<id>\n"
++			"    Id can be one of the following:\n"
++			"    %d (SB1.0), %d (SB1.5), %d (SB2.0),\n"
++			"    %d (SBPro), %d (SBPro2), %d (SB16)\n"
++			"    %d (ESS Audiodrive), %d (Ensoniq Soundscape),\n"
++			"    %d (WSS)\n"
++			"\n", 
++			DIGI_SB10, DIGI_SB15, DIGI_SB20, DIGI_SBPRO, DIGI_SBPRO2,
++			DIGI_SB16, DIGI_AUDIODRIVE, DIGI_SOUNDSCAPE, DIGI_WINSOUNDSYS);
++		return 0;
++	}
++	
++	if (outburst < 4096) outburst = 4096;
++	mp_msg(MSGT_AO,MSGL_DBG2, "ao_allegro: buffer size=%u\n", outburst);
++
++	switch(format)
++	{
++		case AF_FORMAT_S16_BE:
++		case AF_FORMAT_U16_BE:
++		case AF_FORMAT_S16_LE:
++		case AF_FORMAT_U16_LE:
++			bits = 16;
++			ao_data.bps = channels * rate * 2;
++			break;
++		case AF_FORMAT_S8:
++		case AF_FORMAT_U8:
++			bits = 8;
++			ao_data.bps = channels * rate;
++			break;
++		default:
++		{
++			mp_msg(MSGT_AO,MSGL_ERR, "ao_allegro: unsupported format %s\n", af_fmt2str_short(format));
++			return 0;
++		}
++	}
++	if(channels > 2)
++	{
++		mp_msg(MSGT_AO,MSGL_ERR, "ao_allegro: unable to play %d channel sound\n", channels);
++		return 0;
++	}
++	if(allegro_init() != 0)
++	{
++		mp_msg(MSGT_AO,MSGL_ERR, "ao_allegro: error initialising library\n");
++		return 0;
++	}
++
++	reserve_voices(voices, 0);
++
++	if(install_sound(card_id, MIDI_NONE, NULL) != 0)
++	{
++		mp_msg(MSGT_AO,MSGL_ERR, "ao_allegro: error initialising sound system\n");
++		mp_msg(MSGT_AO,MSGL_ERR, "ao_allegro: %s\n", allegro_error);
++		return 0;
++	}
++
++	ao_data.samplerate = rate;
++	ao_data.channels = channels;
++	ao_data.format = format;
++	ao_data.outburst = outburst;
++	ao_data.buffersize = outburst;
++
++	mp_msg(MSGT_AO,MSGL_DBG2, "ao_allegro: stream - buffer=%d, bits=%d, stereo=%d, rate=%d\n",
++		ao_data.outburst / (ao_data.channels * bits / 8), bits, channels - 1, rate);
++
++	stream = play_audio_stream(ao_data.outburst / (ao_data.channels * bits / 8), bits, \
++		ao_data.channels - 1, ao_data.samplerate, volume, 127);
++
++	if (stream == NULL)
++	{
++		mp_msg(MSGT_AO,MSGL_ERR, "ao_allegro: error creating audio stream!\n");
++		return 0;
++	}
++	return 1;
++}
++
++// close audio device
++static void uninit(int immed)
++{
++	stop_audio_stream(stream);
++}
++
++// stop playing and empty buffers (for seeking/pause)
++static void reset(void)
++{
++//	inaccurate :(
++	int volume = voice_get_volume(stream->voice);
++	stop_audio_stream(stream);
++	stream = play_audio_stream(ao_data.outburst / (ao_data.channels * bits / 8), bits, \
++		ao_data.channels - 1, ao_data.samplerate, volume, 127);
++}
++
++// stop playing, keep buffers (for pause)
++static void audio_pause(void)
++{
++	voice_stop(stream->voice);
++}
++
++// resume playing, after audio_pause()
++static void audio_resume(void)
++{
++	voice_start(stream->voice);
++}
++
++// return: how many bytes can be played without blocking
++static int get_space(void)
++{
++	mem_chunk = get_audio_stream_buffer(stream);
++	if (mem_chunk != NULL)
++	{
++		return ao_data.outburst;
++	}
++	return 0;
++}
++
++// puts to destination (stream) buffer unsigned (le) data of 'len' bytes
++// 'len' should be even for 16-bit formats
++void mkunsigned (void *dest, void *src, int len)
++{
++	int i;
++
++	switch(ao_data.format)
++	{
++		case AF_FORMAT_S16_LE:
++			for (i = 0; i < len/2; i++)
++				((uint16_t *)dest)[i] = ((uint16_t *)src)[i] ^ 0x8000;
++			break;
++		case AF_FORMAT_S16_BE:
++			for (i = 0; i < len; i += 2)
++			{
++				((uint8_t *)dest)[i+1] = ((uint8_t *)src)[i] ^ 0x80;
++				((uint8_t *)dest)[i] = ((uint8_t *)src)[i+1];
++			}
++			break;
++		case AF_FORMAT_U16_BE:
++			swab(src, dest, len);
++			break;
++		case AF_FORMAT_S8:
++			for (i = 0; i < len; i++)
++				((uint8_t *)dest)[i] = ((uint8_t *)src)[i] ^ 0x80;
++			break;
++		default:
++			memcpy (dest, src, len);
++	}
++}
++
++// fills buffer of 'len' bytes with silence
++void mksilence (void *data, int len)
++{
++	int i;
++
++	if (bits == 8)
++		for (i = 0; i < len; i++)
++			((uint8_t *)data)[i] = 0x80;
++	else
++		for (i = 0; i < len/2; i++)
++			((uint16_t *)data)[i] = 0x8000;
++}
++
++// plays 'len' bytes of 'data'
++// it should round it down to outburst*n
++// return: number of bytes played
++static int play(void* data,int len,int flags)
++{
++	if (len <= 0)
++		return 0;
++	if (len > ao_data.outburst || !(flags & AOPLAY_FINAL_CHUNK))
++		len = ao_data.outburst;
++	if (mem_chunk != NULL) 
++	{
++		mkunsigned (mem_chunk, data, len);
++		if (flags & AOPLAY_FINAL_CHUNK)
++			mksilence((int8_t *)(mem_chunk) + len, ao_data.outburst - len);
++		free_audio_stream_buffer(stream);
++		if (!play_start.tv_sec)
++			gettimeofday(&play_start, NULL);
++		total_samples += len / (ao_data.channels * bits / 8);
++		return len;
++	}
++	return 0;
++}
++
++// return: delay in seconds between first and last sample in buffer
++static float get_delay(void)
++{
++	struct timeval now;
++	double buffered_samples_time;
++	double play_time;
++
++	if (!play_start.tv_sec)
++		return 0;
++	buffered_samples_time = (float)total_samples / ao_data.samplerate;
++	gettimeofday (&now, NULL);
++	play_time  =  now.tv_sec  - play_start.tv_sec;
++	play_time += (now.tv_usec - play_start.tv_usec) / 1000000.0;
++
++	if (play_time > buffered_samples_time)
++	{
++//		mp_msg(MSGT_AO,MSGL_WARN, "\nao_allegro: underflow\n");
++		play_start.tv_sec = 0;
++		total_samples = 0;
++		return 0;
++	}
++    
++	return buffered_samples_time - play_time;
++        
++}
+diff -ur -r MPlayer-1.0rc2/libavutil/internal.h MPlayer-1.0rc2_djgpp/libavutil/internal.h
+--- MPlayer-1.0rc2/libavutil/internal.h	2007-10-07 23:49:34.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/libavutil/internal.h	2007-10-12 12:52:00.000000000 +0400
+@@ -118,7 +118,7 @@
+ #endif
+ 
+ // Use rip-relative addressing if compiling PIC code on x86-64.
+-#if defined(__MINGW32__) || defined(__CYGWIN__) || \
++#if defined(__MINGW32__) || defined(__CYGWIN__) || defined(__DJGPP__) || \
+     defined(__OS2__) || (defined (__OpenBSD__) && !defined(__ELF__))
+ #    if defined(ARCH_X86_64) && defined(PIC)
+ #        define MANGLE(a) "_" #a"(%%rip)"
+@@ -278,4 +278,37 @@
+ }
+ #endif /* HAVE_LRINTF */
+ 
++#ifdef __DJGPP__
++static av_always_inline long int lrint(double x)
++{
++    int32_t i;
++    asm volatile(
++        "fistpl %0\n\t"
++        : "=m" (i) : "t" (x) : "st"
++    );
++    return i;
++}
++
++static av_always_inline long long llrint(double x)
++{
++    int64_t i;
++    asm volatile(
++        "fistpll %0\n\t"
++        : "=m" (i) : "t" (x) : "st"
++    );
++    return i;
++}
++
++static av_always_inline float roundf(float x)
++{
++   return (x + (x < 0 ? -0.5 : 0.5));
++}
++
++static av_always_inline double round(double v)
++{
++   return floor(v + 0.5);
++}
++
++#endif /* __DJGPP__ */
++
+ #endif /* INTERNAL_H */
+diff -ur -r MPlayer-1.0rc2/libvo/gtf.c MPlayer-1.0rc2_djgpp/libvo/gtf.c
+--- MPlayer-1.0rc2/libvo/gtf.c	2007-10-07 23:49:28.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/libvo/gtf.c	2007-10-12 12:55:50.000000000 +0400
+@@ -25,6 +25,13 @@
+ 
+ static GTF_constants GTF_given_constants = { 3.0,550.0,1,8,1.8,8,40,20,128,600 };
+ 
++#ifdef __DJGPP__
++static double round(double v)
++{
++    return floor(v + 0.5);
++}
++#endif
++
+ static void GetRoundedConstants(GTF_constants *c)
+     {
+     c->Vsync_need = round(GTF_given_constants.Vsync_need);
+diff -ur -r MPlayer-1.0rc2/libvo/vesa_lvo.c MPlayer-1.0rc2_djgpp/libvo/vesa_lvo.c
+--- MPlayer-1.0rc2/libvo/vesa_lvo.c	2007-10-07 23:49:28.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/libvo/vesa_lvo.c	2007-10-12 11:06:11.000000000 +0400
+@@ -54,6 +54,7 @@
+ {
+   mp_msg(MSGT_VO,MSGL_WARN, MSGTR_LIBVO_VESA_ThisBranchIsNoLongerSupported);
+   return -1;
++#if 0
+   if( mp_msg_test(MSGT_VO,MSGL_DBG2) ) {
+     mp_msg(MSGT_VO,MSGL_DBG2, "vesa_lvo: vlvo_preinit(%s) was called\n",drvname);}
+ 	lvo_handler = open(drvname,O_RDWR);
+@@ -69,6 +70,7 @@
+ 	video_out_vesa.draw_osd=vlvo_draw_osd;
+   video_out_vesa.control=vlvo_control;
+ 	return 0;
++#endif
+ }
+ 
+ int      vlvo_init(unsigned src_width,unsigned src_height,
+@@ -78,6 +80,7 @@
+   size_t i,awidth;
+   mp_msg(MSGT_VO,MSGL_WARN, MSGTR_LIBVO_VESA_ThisBranchIsNoLongerSupported);
+   return -1;
++#if 0
+   if( mp_msg_test(MSGT_VO,MSGL_DBG2) ) {
+     mp_msg(MSGT_VO,MSGL_DBG2, "vesa_lvo: vlvo_init() was called\n");}
+ 	image_width = src_width;
+@@ -143,15 +146,20 @@
+ 	/*clear the buffer*/
+ 	memset(frames[0],0x80,mga_vid_config.frame_size*mga_vid_config.num_frames);
+ 	return 0;  
++#endif
+ }
+ 
+ void vlvo_term( void )
+ {
++  mp_msg(MSGT_VO,MSGL_WARN, MSGTR_LIBVO_VESA_ThisBranchIsNoLongerSupported);
++    return;
++#if 0
+   if( mp_msg_test(MSGT_VO,MSGL_DBG2) ) {
+     mp_msg(MSGT_VO,MSGL_DBG2, "vesa_lvo: vlvo_term() was called\n");}
+ 	ioctl( lvo_handler,MGA_VID_OFF,0 );
+ 	munmap(frames[0],mga_vid_config.frame_size*mga_vid_config.num_frames);
+ 	if(lvo_handler != -1) close(lvo_handler);
++#endif
+ }
+ 
+ uint32_t vlvo_draw_slice_420(uint8_t *image[], int stride[], int w,int h,int x,int y)
+diff -ur -r MPlayer-1.0rc2/libvo/video_out.c MPlayer-1.0rc2_djgpp/libvo/video_out.c
+--- MPlayer-1.0rc2/libvo/video_out.c	2007-10-07 23:49:28.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/libvo/video_out.c	2007-10-12 11:06:11.000000000 +0400
+@@ -206,6 +206,9 @@
+ #ifdef HAVE_SVGALIB
+ 	&video_out_svga,
+ #endif
++#ifdef HAVE_VESA
++	&video_out_vesa,
++#endif
+ #ifdef HAVE_AA
+ 	&video_out_aa,
+ #endif
+@@ -231,9 +234,6 @@
+ #ifdef HAVE_BL
+ 	&video_out_bl,
+ #endif
+-#ifdef HAVE_VESA
+-	&video_out_vesa,
+-#endif
+ #ifdef HAVE_DIRECTFB
+ 	&video_out_directfb,
+ #ifdef HAVE_DFBMGA
+diff -ur -r MPlayer-1.0rc2/libvo/vo_vesa.c MPlayer-1.0rc2_djgpp/libvo/vo_vesa.c
+--- MPlayer-1.0rc2/libvo/vo_vesa.c	2007-10-07 23:49:28.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/libvo/vo_vesa.c	2007-10-12 11:06:11.000000000 +0400
+@@ -34,6 +34,10 @@
+ 
+ #include <vbe.h>
+ 
++#ifdef __DJGPP__
++#include <crt0.h>
++#endif
++
+ #include "video_out.h"
+ #include "video_out_internal.h"
+ 
+@@ -164,10 +168,10 @@
+ #ifdef CONFIG_VIDIX
+   else if(vidix_opened) { vidix_term();  vidix_opened = 0; }
+ #endif
+-  if(init_state) if((err=vbeRestoreState(init_state)) != VBE_OK) PRINT_VBE_ERR("vbeRestoreState",err);
+-  init_state=NULL;
+   if(init_mode) if((err=vbeSetMode(init_mode,NULL)) != VBE_OK) PRINT_VBE_ERR("vbeSetMode",err);
+   init_mode=0;
++  if(init_state) if((err=vbeRestoreState(init_state)) != VBE_OK) PRINT_VBE_ERR("vbeRestoreState",err);
++  init_state=NULL;
+   if(HAS_DGA()) vbeUnmapVideoBuffer((unsigned long)win.ptr,win.high);
+   if(dga_buffer && !HAS_DGA()) free(dga_buffer);
+   vbeDestroy();
+@@ -680,7 +684,7 @@
+ 	/* Find best mode here */
+ 	num_modes = 0;
+ 	mode_ptr = vib.VideoModePtr;
+-	while(*mode_ptr++ != 0xffff) num_modes++;
++	while  (mode_ptr[num_modes] != 0xffff) num_modes++;
+ 	switch(format)
+ 	{
+ 		case IMGFMT_BGR8:
+@@ -720,7 +724,6 @@
+ 	{
+ 	  mp_msg(MSGT_VO,MSGL_V, "vo_vesa: Requested mode: %ux%u@%u (%s)\n",width,height,bpp,vo_format_name(format));
+ 	  mp_msg(MSGT_VO,MSGL_V, "vo_vesa: Total modes found: %u\n",num_modes);
+-	  mode_ptr = vib.VideoModePtr;
+ 	  mp_msg(MSGT_VO,MSGL_V, "vo_vesa: Mode list:");
+ 	  for(i = 0;i < num_modes;i++)
+ 	  {
+@@ -728,7 +731,6 @@
+ 	  }
+ 	  mp_msg(MSGT_VO,MSGL_V, "\nvo_vesa: Modes in detail:\n");
+ 	}
+-	mode_ptr = vib.VideoModePtr;
+ 	if(use_scaler)
+ 	{
+ 	    dstW = d_width;
+@@ -777,7 +779,7 @@
+ 	}
+ 	if(best_mode_idx != UINT_MAX)
+ 	{
+-		video_mode = vib.VideoModePtr[best_mode_idx];
++		video_mode = mode_ptr[best_mode_idx];
+ 		fflush(stdout);
+ 		if((err=vbeGetMode(&init_mode)) != VBE_OK)
+ 		{
+@@ -933,16 +935,15 @@
+ 			 GTF constants might be read from monitor
+ 			 for best results, I don't have a spec (RM)
+ 		*/
++
++		if (((int)(vib.VESAVersion >> 8) & 0xff) > 2) 
++		{
+ 		
+-		if (((int)(vib.VESAVersion >> 8) & 0xff) > 2) {
+-		
+-		if (set_refresh(video_mode_info.XResolution,video_mode_info.YResolution,video_mode,&crtc_pass))
+-		video_mode = video_mode | 0x800;
++		    if (set_refresh(video_mode_info.XResolution,video_mode_info.YResolution,video_mode,&crtc_pass))
++		        video_mode = video_mode | 0x800;
+ 		
+ 		}
+-		
+-		;
+-		
++
+ 		if ((err=vbeSetMode(video_mode,&crtc_pass)) != VBE_OK)
+ 		{
+ 			PRINT_VBE_ERR("vbeSetMode",err);
+@@ -1086,6 +1087,10 @@
+ #ifdef CONFIG_VIDIX
+   else if(vidix_name) pre_init_err = vidix_preinit(vidix_name,&video_out_vesa);
+ #endif
++#ifdef __DJGPP__
++  if (!(_crt0_startup_flags & _CRT0_FLAG_NEARPTR))
++        return -1;
++#else
+   // check if we can open /dev/mem (it will be opened later in config(), but if we
+   // detect now that we can't we can exit cleanly)
+   fd = open("/dev/mem", O_RDWR);
+@@ -1093,6 +1098,7 @@
+   	return -1;
+   else
+   	close(fd);
++#endif
+   if( mp_msg_test(MSGT_VO,MSGL_DBG3) )
+         mp_msg(MSGT_VO,MSGL_DBG3, "vo_subdevice: initialization returns: %i\n",pre_init_err);
+   return pre_init_err;
+diff -ur -r MPlayer-1.0rc2/mangle.h MPlayer-1.0rc2_djgpp/mangle.h
+--- MPlayer-1.0rc2/mangle.h	2007-10-07 23:49:33.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/mangle.h	2007-10-12 11:06:11.000000000 +0400
+@@ -9,7 +9,8 @@
+ 
+ /* Feel free to add more to the list, eg. a.out IMO */
+ #if defined(__CYGWIN__) || defined(__MINGW32__) || defined(__OS2__) || \
+-   (defined(__OpenBSD__) && !defined(__ELF__)) || defined(__APPLE__)
++   (defined(__OpenBSD__) && !defined(__ELF__)) || defined(__APPLE__) || \
++    defined(__DJGPP__)
+ #define MANGLE(a) "_" #a
+ #else
+ #define MANGLE(a) #a
+diff -ur -r MPlayer-1.0rc2/mplayer.c MPlayer-1.0rc2_djgpp/mplayer.c
+--- MPlayer-1.0rc2/mplayer.c	2007-10-07 23:49:33.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/mplayer.c	2007-10-12 11:06:11.000000000 +0400
+@@ -36,6 +36,11 @@
+ 
+ #include <errno.h>
+ 
++#if defined(__DJGPP__) && defined(HAVE_VESA)
++#include <sys/nearptr.h>
++#include <crt0.h>
++#endif
++
+ #include "version.h"
+ 
+ #include "mp_msg.h"
+@@ -1178,10 +1183,15 @@
+     line[pos] = 0;
+     mp_msg(MSGT_STATUSLINE, MSGL_STATUS, "%s%s\r", line, erase_to_end_of_line);
+   } else {
++#ifdef __DJGPP__
++    line[pos] = 0;
++    mp_msg(MSGT_STATUSLINE, MSGL_STATUS, "%-*s\r", width-2, line);
++#else
+     memset(&line[pos], ' ', width - pos);
+     line[width] = 0;
+     mp_msg(MSGT_STATUSLINE, MSGL_STATUS, "%s\r", line);
+-  }
++#endif
++}
+   free(line);
+ }
+ 
+@@ -2293,6 +2303,12 @@
+ 
+ int gui_no_filename=0;
+ 
++#if defined(__DJGPP__) && defined(HAVE_VESA)
++  _crt0_startup_flags |= _CRT0_FLAG_NEARPTR;
++  if (!__djgpp_nearptr_enable())
++    return -1;
++#endif
++
+   srand((int) time(NULL)); 
+ 
+   InitTimer();
+@@ -2629,7 +2645,7 @@
+ #endif
+   
+   /// Catch signals
+-#ifndef __MINGW32__
++#if !defined(__MINGW32__) && !defined(__DJGPP__)
+   signal(SIGCHLD,child_sighandler);
+ #endif
+ 
+diff -ur -r MPlayer-1.0rc2/osdep/getch2.c MPlayer-1.0rc2_djgpp/osdep/getch2.c
+--- MPlayer-1.0rc2/osdep/getch2.c	2007-10-07 23:49:31.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/osdep/getch2.c	2007-10-12 11:06:11.000000000 +0400
+@@ -3,7 +3,7 @@
+ #include "config.h"
+ 
+ //#define USE_TERMCAP
+-#if !defined(__OS2__) && !defined(__MORPHOS__)
++#if !defined(__OS2__) && !defined(__MORPHOS__) && !defined(__DJGPP__)
+ #define USE_IOCTL
+ #endif
+ 
+diff -ur -r MPlayer-1.0rc2/osdep/shmem.c MPlayer-1.0rc2_djgpp/osdep/shmem.c
+--- MPlayer-1.0rc2/osdep/shmem.c	2007-10-07 23:49:31.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/osdep/shmem.c	2007-10-12 11:06:11.000000000 +0400
+@@ -46,6 +46,14 @@
+ static int devzero = -1;
+ while(1){
+   switch(shmem_type){
++#ifdef __DJGPP__
++  case 0:
++  case 1:
++    p=malloc(size);
++    if(p==NULL) break;
++    mp_dbg(MSGT_OSDEP, MSGL_DBG2, "shmem: %d bytes allocated using malloc (%p)\n",size,p);
++    return p;
++#else
+   case 0:  // ========= MAP_ANON|MAP_SHARED ==========
+ #ifdef MAP_ANON
+     p=mmap(0,size,PROT_READ|PROT_WRITE,MAP_ANON|MAP_SHARED,-1,0);
+@@ -63,6 +71,7 @@
+     if(p==MAP_FAILED) break; // failed
+     mp_dbg(MSGT_OSDEP, MSGL_DBG2, "shmem: %d bytes allocated using mmap /dev/zero (%p)\n",size,p);
+     return p;
++#endif
+   case 2: { // ========= shmget() ==========
+ #ifdef HAVE_SHM
+     struct shmid_ds shmemds;
+@@ -98,11 +107,15 @@
+   switch(shmem_type){
+     case 0:
+     case 1:
++#ifdef __DJGPP__
++	    free(p);
++#else
+ 	    if(munmap(p,size)) {
+ 		mp_msg(MSGT_OSDEP, MSGL_ERR, "munmap failed on %p %d bytes: %s\n",
+ 		    p,size,strerror(errno));
+ 	    }
+-      break;
++#endif
++	    break;
+     case 2:
+ #ifdef HAVE_SHM
+ 	    if (shmdt(p) == -1)
+diff -ur -r MPlayer-1.0rc2/stream/librtsp/rtsp_rtp.c MPlayer-1.0rc2_djgpp/stream/librtsp/rtsp_rtp.c
+--- MPlayer-1.0rc2/stream/librtsp/rtsp_rtp.c	2007-10-07 23:49:26.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/stream/librtsp/rtsp_rtp.c	2007-10-12 11:06:11.000000000 +0400
+@@ -45,6 +45,10 @@
+ #include "../freesdp/common.h"
+ #include "../freesdp/parser.h"
+ 
++#ifdef __DJGPP__
++typedef int socklen_t;
++#endif
++
+ #define RTSP_DEFAULT_PORT 31336
+ #define MAX_LENGTH 256
+ 
+diff -ur -r MPlayer-1.0rc2/stream/stream_file.c MPlayer-1.0rc2_djgpp/stream/stream_file.c
+--- MPlayer-1.0rc2/stream/stream_file.c	2007-10-07 23:49:26.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/stream/stream_file.c	2007-10-12 11:06:11.000000000 +0400
+@@ -113,7 +113,7 @@
+     return STREAM_ERROR;
+   }
+ 
+-#if defined(__CYGWIN__)|| defined(__MINGW32__)
++#if defined(__CYGWIN__) || defined(__MINGW32__) || defined(__DJGPP__)
+   m |= O_BINARY;
+ #endif    
+ 
+diff -ur -r MPlayer-1.0rc2/stream/tcp.c MPlayer-1.0rc2_djgpp/stream/tcp.c
+--- MPlayer-1.0rc2/stream/tcp.c	2007-10-07 23:49:26.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/stream/tcp.c	2007-10-12 11:06:11.000000000 +0400
+@@ -34,6 +34,10 @@
+ 
+ #include "tcp.h"
+ 
++#ifdef __DJGPP__
++typedef int socklen_t;
++#endif
++
+ /* IPv6 options */
+ int   network_prefer_ipv4 = 0;
+ 
+@@ -224,7 +228,11 @@
+ 		mp_msg(MSGT_NETWORK,MSGL_ERR,MSGTR_MPDEMUX_NW_GetSockOptFailed,strerror(errno));
+ 		return TCP_ERROR_FATAL;
+ 	}
++#ifdef __DJGPP__
++ 	if(err > 0 && err != EISCONN) {
++#else
+ 	if(err > 0) {
++#endif
+ 		mp_msg(MSGT_NETWORK,MSGL_ERR,MSGTR_MPDEMUX_NW_ConnectError,strerror(err));
+ 		return TCP_ERROR_PORT;
+ 	}
+diff -ur -r MPlayer-1.0rc2/stream/udp.c MPlayer-1.0rc2_djgpp/stream/udp.c
+--- MPlayer-1.0rc2/stream/udp.c	2007-10-07 23:49:26.000000000 +0400
++++ MPlayer-1.0rc2_djgpp/stream/udp.c	2007-10-12 11:06:11.000000000 +0400
+@@ -45,6 +45,10 @@
+ 
+ int reuse_socket=0;
+ 
++#ifdef __DJGPP__
++typedef int socklen_t;
++#endif
++
+ /* Start listening on a UDP port. If multicast, join the group. */
+ int
+ udp_open_socket (URL_t *url)
